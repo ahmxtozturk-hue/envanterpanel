@@ -634,16 +634,16 @@ try {
                             <label class="form-check-label" for="selectAll"></label>
                           </div>
                         </th>
-                        <th width="150">
+                        <th width="150" data-sort="stok_kodu" style="cursor: pointer;">
                           <i class="fas fa-barcode me-2"></i>Stok Kodu
                         </th>
-                        <th width="300">
+                        <th width="300" data-sort="envanteradi" style="cursor: pointer;">
                           <i class="fas fa-tag me-2"></i>Envanter Adı
                         </th>
-                        <th width="200">
+                        <th width="200" data-sort="departman" style="cursor: pointer;">
                           <i class="fas fa-building me-2"></i>Departman
                         </th>
-                        <th width="150">
+                        <th width="150" data-sort="kullanici" style="cursor: pointer;">
                           <i class="fas fa-user me-2"></i>Kullanıcı
                         </th>
                         <th width="120" class="text-center">
@@ -733,17 +733,26 @@ document.addEventListener('DOMContentLoaded', function() {
         departman: '',
         kullanici: ''
     };
+    let currentSortBy = 'stok_kodu'; // Varsayılan sıralama sütunu
+    let currentSortOrder = 'asc';   // Varsayılan sıralama yönü
     
     // Sayfa yüklendiğinde envanteri çek
-    function loadInventory(page = 1, limit = 20, filters = {}) {
+    function loadInventory(page = 1, limit = 20, filters = {}, sortBy, sortOrder) {
         currentPage = page;
         currentLimit = limit;
-        currentFilters = {...currentFilters, ...filters};
+        // Gelen filtre boş değilse, mevcut filtreleri güncelle
+        if (Object.keys(filters).length > 0) {
+            currentFilters = filters;
+        }
         
+        // Eğer sortBy ve sortOrder parametreleri geldiyse, mevcut sıralama durumunu güncelle
+        if (sortBy) currentSortBy = sortBy;
+        if (sortOrder) currentSortOrder = sortOrder;
+
         // Loading göster
         $('#envanterTable tbody').html(`
             <tr>
-                <td colspan="7" class="text-center py-5">
+                <td colspan="6" class="text-center py-5">
                     <div class="loading-spinner me-2"></div>
                     Envanterler yükleniyor...
                 </td>
@@ -754,22 +763,24 @@ document.addEventListener('DOMContentLoaded', function() {
             url: 'proxy.php',
             type: 'GET',
             data: {
-                page: page,
-                limit: limit,
-                filters: JSON.stringify(currentFilters)
+                page: currentPage,
+                limit: currentLimit,
+                filters: JSON.stringify(currentFilters),
+                sortBy: currentSortBy,
+                sortOrder: currentSortOrder
             },
             dataType: 'json',
             success: function(response) {
                 if (response.success && response.data) {
                     renderInventory(response.data);
-                    renderPagination(response.data, page, limit);
+                    renderPagination(response.data);
                     updateRecordInfo(response.data);
                 } else {
                     $('#envanterTable tbody').html(`
                         <tr>
-                            <td colspan="7" class="text-center text-danger py-5">
+                            <td colspan="6" class="text-center text-danger py-5">
                                 <i class="fas fa-exclamation-triangle fa-3x mb-3 text-warning"></i><br>
-                                Envanterler yüklenirken bir hata oluştu
+                                Envanterler yüklenirken bir hata oluştu: ${response.message || ''}
                             </td>
                         </tr>
                     `);
@@ -778,7 +789,7 @@ document.addEventListener('DOMContentLoaded', function() {
             error: function() {
                 $('#envanterTable tbody').html(`
                     <tr>
-                        <td colspan="7" class="text-center text-danger py-5">
+                        <td colspan="6" class="text-center text-danger py-5">
                             <i class="fas fa-wifi fa-3x mb-3 text-danger"></i><br>
                             Sunucu bağlantı hatası
                         </td>
@@ -826,9 +837,9 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             html = `
                 <tr>
-                    <td colspan="7" class="text-center py-5">
+                    <td colspan="6" class="text-center py-5">
                         <i class="fas fa-box-open fa-3x mb-3 text-muted"></i><br>
-                        <span class="text-muted">Henüz envanter bulunamadı</span>
+                        <span class="text-muted">Filtre kriterlerine uygun envanter bulunamadı</span>
                     </td>
                 </tr>
             `;
@@ -840,10 +851,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Kayıt bilgilerini güncelle
     function updateRecordInfo(data) {
         const total = data.total || 0;
-        const currentPage = data.current_page || 1;
-        const perPage = data.per_page || 20;
-        const startRecord = ((currentPage - 1) * perPage) + 1;
-        const endRecord = Math.min(currentPage * perPage, total);
+        const page = data.current_page || 1;
+        const limit = data.per_page || 20;
+        const startRecord = total > 0 ? ((page - 1) * limit) + 1 : 0;
+        const endRecord = Math.min(page * limit, total);
         
         $('#recordInfo').html(`
             Toplam: <strong>${total}</strong> kayıt 
@@ -852,9 +863,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Sayfalama linklerini render et
-    function renderPagination(data, currentPage, limit) {
+    function renderPagination(data) {
         let paginationHtml = '';
         const totalPages = data.total_pages || 1;
+        const page = data.current_page || 1;
         
         if (totalPages <= 1) {
             $('.pagination').html('');
@@ -862,21 +874,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Previous button
-        if (currentPage > 1) {
+        if (page > 1) {
             paginationHtml += `
             <li class="page-item">
-                <a class="page-link" href="#" onclick="loadInventory(${currentPage - 1}, ${limit}, currentFilters)" aria-label="Previous">
+                <a class="page-link" href="#" onclick="loadInventory(${page - 1}, currentLimit)" aria-label="Previous">
                     <i class="fas fa-chevron-left"></i>
                 </a>
             </li>`;
         }
         
         // Page numbers with smart pagination
-        let startPage = Math.max(1, currentPage - 2);
-        let endPage = Math.min(totalPages, currentPage + 2);
+        let startPage = Math.max(1, page - 2);
+        let endPage = Math.min(totalPages, page + 2);
         
         if (startPage > 1) {
-            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(1, ${limit}, currentFilters)">1</a></li>`;
+            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(1, currentLimit)">1</a></li>`;
             if (startPage > 2) {
                 paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
             }
@@ -884,8 +896,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         for (let i = startPage; i <= endPage; i++) {
             paginationHtml += `
-            <li class="page-item ${i === currentPage ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="loadInventory(${i}, ${limit}, currentFilters)">${i}</a>
+            <li class="page-item ${i === page ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="loadInventory(${i}, currentLimit)">${i}</a>
             </li>`;
         }
         
@@ -893,20 +905,37 @@ document.addEventListener('DOMContentLoaded', function() {
             if (endPage < totalPages - 1) {
                 paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
             }
-            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(${totalPages}, ${limit}, currentFilters)">${totalPages}</a></li>`;
+            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(${totalPages}, currentLimit)">${totalPages}</a></li>`;
         }
         
         // Next button
-        if (currentPage < totalPages) {
+        if (page < totalPages) {
             paginationHtml += `
             <li class="page-item">
-                <a class="page-link" href="#" onclick="loadInventory(${currentPage + 1}, ${limit}, currentFilters)" aria-label="Next">
+                <a class="page-link" href="#" onclick="loadInventory(${page + 1}, currentLimit)" aria-label="Next">
                     <i class="fas fa-chevron-right"></i>
                 </a>
             </li>`;
         }
         
         $('.pagination').html(paginationHtml);
+        updateSortIcons();
+    }
+
+    // Sıralama ikonlarını güncelle
+    function updateSortIcons() {
+        // Önce tüm ikonları temizle
+        $('#envanterTable thead th .sort-icon').remove();
+
+        const th = $(`#envanterTable thead th[data-sort="${currentSortBy}"]`);
+        if (th.length) {
+            let iconClass = 'fas fa-sort-up'; // up for asc
+            if (currentSortOrder === 'desc') {
+                iconClass = 'fas fa-sort-down'; // down for desc
+            }
+            // Add a non-breaking space before the icon
+            th.append(`&nbsp;<span class="sort-icon ${iconClass}" style="cursor: pointer;"></span>`);
+        }
     }
     
     // HTML escape fonksiyonu
@@ -927,14 +956,12 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.style.display = "block";
         modalImg.src = imageSrc;
         
-        // Close modal when clicking outside the image
         modal.onclick = function(event) {
             if (event.target === modal) {
                 closeImageModal();
             }
         }
         
-        // Close modal with ESC key
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeImageModal();
@@ -949,9 +976,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // Sayfa limiti değiştiğinde
     $('#pageLimit').change(function() {
         const limit = $(this).val();
-        loadInventory(1, limit, currentFilters);
+        loadInventory(1, limit);
     });
     
+    // Tablo başlığına tıklayarak sıralama
+    $(document).on('click', '#envanterTable thead th[data-sort]', function() {
+        const newSortBy = $(this).data('sort');
+        if (!newSortBy) return;
+
+        let newSortOrder;
+        if (newSortBy === currentSortBy) {
+            newSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+            newSortOrder = 'asc';
+        }
+
+        loadInventory(1, currentLimit, {}, newSortBy, newSortOrder);
+    });
+
     // Tümünü seç checkbox'ı
     $('#selectAll').change(function() {
         $('.envanter-checkbox').prop('checked', $(this).prop('checked'));
@@ -962,7 +1004,6 @@ document.addEventListener('DOMContentLoaded', function() {
     $(document).on('change', '.envanter-checkbox', function() {
         updateDeleteButton();
         
-        // Tümünü seç checkbox'ının durumunu güncelle
         const totalCheckboxes = $('.envanter-checkbox').length;
         const checkedCheckboxes = $('.envanter-checkbox:checked').length;
         $('#selectAll').prop('indeterminate', checkedCheckboxes > 0 && checkedCheckboxes < totalCheckboxes);
@@ -989,13 +1030,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         if (selected.length === 0) {
-            Swal.fire({
-                title: 'Uyarı!',
-                text: 'Lütfen silmek istediğiniz envanterleri seçiniz.',
-                icon: 'warning',
-                confirmButtonText: 'Tamam',
-                confirmButtonColor: '#3085d6'
-            });
+            Swal.fire('Uyarı!', 'Lütfen silmek istediğiniz envanterleri seçiniz.', 'warning');
             return;
         }
         
@@ -1012,19 +1047,12 @@ document.addEventListener('DOMContentLoaded', function() {
             focusCancel: true
         }).then((result) => {
             if (result.isConfirmed) {
-                // Loading göster
                 Swal.fire({
                     title: 'Siliniyor...',
-                    text: 'Lütfen bekleyiniz.',
                     allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
+                    didOpen: () => { Swal.showLoading(); }
                 });
                 
-                // AJAX ile silme işlemi
                 $.ajax({
                     url: 'sil.php',
                     type: 'POST',
@@ -1032,39 +1060,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     data: JSON.stringify({ urunler: selected }),
                     success: function(response) {
                         if (response.success) {
-                            Swal.fire({
-                                title: 'Başarılı!',
-                                text: response.message || 'Seçili envanterler başarıyla silindi.',
-                                icon: 'success',
-                                confirmButtonColor: '#28a745',
-                                timer: 2000,
-                                timerProgressBar: true
-                            }).then(() => {
-                                loadInventory(currentPage, currentLimit, currentFilters);
-                                $('#selectAll').prop('checked', false);
-                            });
+                            Swal.fire('Başarılı!', response.message || 'Seçili envanterler başarıyla silindi.', 'success');
+                            loadInventory(currentPage, currentLimit);
+                            $('#selectAll').prop('checked', false);
                         } else {
-                            Swal.fire({
-                                title: 'Hata!',
-                                text: response.message || 'Envanterler silinirken bir hata oluştu.',
-                                icon: 'error',
-                                confirmButtonColor: '#dc3545'
-                            });
+                            Swal.fire('Hata!', response.message || 'Envanterler silinirken bir hata oluştu.', 'error');
                         }
                     },
-                    error: function(xhr) {
-                        let errorMsg = 'İşlem sırasında bir hata oluştu.';
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            errorMsg = response.message || errorMsg;
-                        } catch (e) {}
-                        
-                        Swal.fire({
-                            title: 'Bağlantı Hatası!',
-                            text: errorMsg,
-                            icon: 'error',
-                            confirmButtonColor: '#dc3545'
-                        });
+                    error: function() {
+                        Swal.fire('Bağlantı Hatası!', 'İşlem sırasında bir hata oluştu.', 'error');
                     }
                 });
             }
@@ -1073,51 +1077,30 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Yenile butonu
     $('#refreshBtn').click(function() {
-        const btn = $(this);
-        const originalHtml = btn.html();
-        
-        btn.html('<i class="fas fa-spinner fa-spin me-2"></i>Yenileniyor...');
-        btn.prop('disabled', true);
-        
-        setTimeout(() => {
-            loadInventory(currentPage, currentLimit, currentFilters);
-            btn.html(originalHtml);
-            btn.prop('disabled', false);
-            
-            // Success animation
-            btn.addClass('btn-success').removeClass('btn-info');
-            setTimeout(() => {
-                btn.addClass('btn-info').removeClass('btn-success');
-            }, 1000);
-        }, 500);
+        loadInventory(currentPage, currentLimit, currentFilters);
     });
     
     // Excel export butonu
     $('#exportBtn').click(function() {
         Swal.fire({
             title: 'Excel Dosyası Hazırlanıyor',
-            text: 'Lütfen bekleyiniz...',
             allowOutsideClick: false,
-            allowEscapeKey: false,
-            showConfirmButton: false,
-            didOpen: () => {
-                Swal.showLoading();
-            }
+            didOpen: () => { Swal.showLoading(); }
         });
         
-        // AJAX ile tüm verileri çek
         $.ajax({
             url: 'proxy.php',
             type: 'GET',
             data: {
                 page: 1,
-                limit: 10000, // Tüm verileri çekmek için büyük bir limit
-                filters: JSON.stringify(currentFilters)
+                limit: 10000,
+                filters: JSON.stringify(currentFilters),
+                sortBy: currentSortBy,
+                sortOrder: currentSortOrder
             },
             dataType: 'json',
             success: function(response) {
                 if (response.success && response.data && response.data.products) {
-                    // Excel verisini hazırla
                     const data = response.data.products.map(item => ({
                         'Stok Kodu': item.stok_kodu,
                         'Envanter Adı': item.envanteradi,
@@ -1126,31 +1109,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         'Resim': item.resim ? 'https://katalog.gunesegel.net/yonetim/envanterler/' + item.resim : 'Yok'
                     }));
                     
-                    // Excel dosyası oluştur
                     const worksheet = XLSX.utils.json_to_sheet(data);
                     const workbook = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(workbook, worksheet, 'Envanter Listesi');
-                    
-                    // Dosyayı indir
-                    XLSX.writeFile(workbook, 'envanter-listesi.xlsx');
-                    
+                    XLSX.writeFile(workbook, `envanter-listesi-${new Date().toISOString().slice(0,10)}.xlsx`);
                     Swal.close();
                 } else {
-                    Swal.fire({
-                        title: 'Hata!',
-                        text: 'Excel dosyası oluşturulurken bir hata oluştu.',
-                        icon: 'error',
-                        confirmButtonColor: '#dc3545'
-                    });
+                    Swal.fire('Hata!', 'Excel dosyası oluşturulurken bir hata oluştu.', 'error');
                 }
             },
             error: function() {
-                Swal.fire({
-                    title: 'Bağlantı Hatası!',
-                    text: 'Veriler alınırken bir hata oluştu.',
-                    icon: 'error',
-                    confirmButtonColor: '#dc3545'
-                });
+                Swal.fire('Bağlantı Hatası!', 'Veriler alınırken bir hata oluştu.', 'error');
             }
         });
     });
@@ -1163,7 +1132,6 @@ document.addEventListener('DOMContentLoaded', function() {
             departman: $('#filterDepartman').val().trim(),
             kullanici: $('#filterKullanici').val().trim()
         };
-        
         loadInventory(1, currentLimit, filters);
     });
     
@@ -1197,8 +1165,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // İlk yükleme
     const urlParams = new URLSearchParams(window.location.search);
     const initialPage = parseInt(urlParams.get('page')) || 1;
-    const initialLimit = parseInt(urlParams.get('limit')) || 20;
+    let initialLimit = parseInt(urlParams.get('limit')) || 20;
     
+    const validLimits = Array.from(document.querySelectorAll('#pageLimit option')).map(opt => opt.value);
+    if (!validLimits.includes(String(initialLimit))) {
+        initialLimit = 20;
+    }
+
     $('#pageLimit').val(initialLimit);
     loadInventory(initialPage, initialLimit);
     
@@ -1209,92 +1182,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.loadInventory = loadInventory;
 });
 
-// Additional animations and enhancements
 $(document).ready(function() {
-    // Smooth scrolling for better UX
     $('html').css('scroll-behavior', 'smooth');
-    
-    // Add loading animation to buttons
-    $('.btn').on('click', function() {
-        const $this = $(this);
-        if (!$this.hasClass('no-loading')) {
-            const originalText = $this.html();
-            $this.data('original-text', originalText);
-            
-            setTimeout(() => {
-                if ($this.data('original-text')) {
-                    $this.html($this.data('original-text'));
-                }
-            }, 3000);
-        }
-    });
-    
-    // Add hover effects to table rows
-    $('#envanterTable').on('mouseenter', 'tbody tr', function() {
-        $(this).find('.btn').css('opacity', '1');
-    }).on('mouseleave', 'tbody tr', function() {
-        $(this).find('.btn').css('opacity', '0.7');
-    });
-    
-    // Auto-refresh feature (optional - uncomment if needed)
-    // setInterval(() => {
-    //     if (document.visibilityState === 'visible') {
-    //         loadInventory(currentPage, currentLimit);
-    //     }
-    // }, 300000); // Refresh every 5 minutes
-    
-    // Keyboard shortcuts
-    $(document).keydown(function(e) {
-        // Ctrl+R or F5 for refresh
-        if ((e.ctrlKey && e.keyCode === 82) || e.keyCode === 116) {
-            e.preventDefault();
-            $('#refreshBtn').click();
-        }
-        
-        // Ctrl+A for select all
-        if (e.ctrlKey && e.keyCode === 65 && e.target.tagName !== 'INPUT') {
-            e.preventDefault();
-            $('#selectAll').click();
-        }
-        
-        // Delete key for delete selected
-        if (e.keyCode === 46 && $('.envanter-checkbox:checked').length > 0) {
-            $('#topluSilBtn').click();
-        }
-    });
-    
-    // Add tooltips to buttons
-    $('[title]').each(function() {
-        $(this).attr('data-bs-toggle', 'tooltip');
-    });
-    
-    // Initialize tooltips if bootstrap tooltip is available
-    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl);
-        });
-    }
-    
-    // Add success/error notification system
-    window.showNotification = function(message, type = 'success') {
-        const notification = $(`
-            <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
-                 style="top: 80px; right: 20px; z-index: 9999; min-width: 300px;">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        `);
-        
-        $('body').append(notification);
-        
-        setTimeout(() => {
-            notification.fadeOut(500, function() {
-                $(this).remove();
-            });
-        }, 5000);
-    };
 });
     </script>
   </body>
