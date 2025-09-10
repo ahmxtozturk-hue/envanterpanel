@@ -26,8 +26,9 @@ try {
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Node.js API'sine GET isteği gönder
-    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 20;
-    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+    // Client-side filtreleme için tüm veriyi çekiyoruz.
+    $limit = 10000; // Yüksek bir limit belirleyerek tüm ürünleri almayı hedefliyoruz.
+    $page = 1;
     
     // Query parametrelerini oluştur
     $queryParams = http_build_query([
