@@ -1,7 +1,21 @@
 <?php
+session_start();
+
+require_once __DIR__ . '/../../api/auth.php';
+
 header('Content-Type: application/json');
 
-// Veritabanı bağlantısı bilgileri (index.php'den alındı)
+// Kullanıcının giriş yapıp yapmadığını kontrol et
+if (!isset($_SESSION['loggedin'])) {
+    http_response_code(401); // Yetkisiz erişim
+    echo json_encode([
+        'success' => false,
+        'message' => 'Giriş yapılmamış. Lütfen oturum açın.'
+    ]);
+    exit();
+}
+
+// Veritabanı bağlantısı
 $host = 'localhost';
 $db_name = 'gunesege_katalog';
 $username = 'gunesege_admintabela';
@@ -11,87 +25,51 @@ try {
     $db = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8mb4", $username, $password);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    // Gelen parametreleri al
-    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+    // Node.js API'sine GET isteği gönder
     $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 20;
-    $filters = isset($_GET['filters']) ? json_decode($_GET['filters'], true) : [];
-    $sortBy = isset($_GET['sortBy']) ? $_GET['sortBy'] : 'stok_kodu'; // Varsayılan sıralama
-    $sortOrder = isset($_GET['sortOrder']) && in_array(strtoupper($_GET['sortOrder']), ['ASC', 'DESC']) ? $_GET['sortOrder'] : 'ASC';
+    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+    
+    // Query parametrelerini oluştur
+    $queryParams = http_build_query([
+        'secret_key' => '98234983242345jjjhhy',
+        'page' => $page,
+        'limit' => $limit
+    ]);
+    
+    $url = 'http://82.153.241.79:9013/api/urunler?' . $queryParams;
 
-    // Güvenlik: İzin verilen sıralama sütunları
-    $allowedSortColumns = ['stok_kodu', 'envanteradi', 'departman', 'kullanici'];
-    if (!in_array($sortBy, $allowedSortColumns)) {
-        $sortBy = 'stok_kodu'; // Geçersiz sütun gelirse varsayılana dön
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Accept: application/json'
+    ]);
+    
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    if (curl_errno($ch)) {
+        throw new Exception('CURL hatası: ' . curl_error($ch));
     }
+    
+    curl_close($ch);
 
-    $offset = ($page - 1) * $limit;
-
-    // WHERE koşulunu oluştur
-    $whereClauses = [];
-    $params = [];
-    if (!empty($filters)) {
-        if (!empty($filters['stok_kodu'])) {
-            $whereClauses[] = "stok_kodu LIKE :stok_kodu";
-            $params[':stok_kodu'] = '%' . $filters['stok_kodu'] . '%';
-        }
-        if (!empty($filters['envanteradi'])) {
-            $whereClauses[] = "envanteradi LIKE :envanteradi";
-            $params[':envanteradi'] = '%' . $filters['envanteradi'] . '%';
-        }
-        if (!empty($filters['departman'])) {
-            $whereClauses[] = "departman LIKE :departman";
-            $params[':departman'] = '%' . $filters['departman'] . '%';
-        }
-        if (!empty($filters['kullanici'])) {
-            $whereClauses[] = "kullanici LIKE :kullanici";
-            $params[':kullanici'] = '%' . $filters['kullanici'] . '%';
-        }
-    }
-
-    $whereSql = count($whereClauses) > 0 ? 'WHERE ' . implode(' AND ', $whereClauses) : '';
-
-    // Toplam kayıt sayısını al
-    $totalStmt = $db->prepare("SELECT COUNT(*) FROM envanter " . $whereSql);
-    $totalStmt->execute($params);
-    $totalRecords = $totalStmt->fetchColumn();
-    $totalPages = ceil($totalRecords / $limit);
-
-    // Envanter verilerini al
-    $query = "SELECT stok_kodu, envanteradi, departman, kullanici, resim FROM envanter "
-           . $whereSql
-           . " ORDER BY " . $sortBy . " " . $sortOrder
-           . " LIMIT " . $limit . " OFFSET " . $offset;
-
-    $stmt = $db->prepare($query);
-    $stmt->execute($params);
-    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Yanıtı oluştur
-    $response = [
-        'success' => true,
-        'data' => [
-            'products' => $products,
-            'total' => $totalRecords,
-            'total_pages' => $totalPages,
-            'current_page' => $page,
-            'per_page' => $limit
-        ]
-    ];
+    // Node.js'den gelen yanıtı direkt ilet
+    http_response_code($httpCode);
+    echo $response;
 
 } catch (PDOException $e) {
-    // Hata durumunda yanıt
+    error_log("Veritabanı hatası: " . $e->getMessage());
     http_response_code(500);
-    $response = [
+    echo json_encode([
         'success' => false,
-        'message' => 'Veritabanı hatası: ' . $e->getMessage()
-    ];
+        'message' => 'Veritabanı hatası oluştu'
+    ]);
 } catch (Exception $e) {
+    error_log("Genel hata: " . $e->getMessage());
     http_response_code(500);
-    $response = [
+    echo json_encode([
         'success' => false,
-        'message' => 'Genel hata: ' . $e->getMessage()
-    ];
+        'message' => 'Bir hata oluştu: ' . $e->getMessage()
+    ]);
 }
-
-echo json_encode($response);
 ?>
