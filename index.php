@@ -77,6 +77,9 @@ try {
     <!-- [Template CSS Files] -->
     <link rel="stylesheet" href="../../assets/css/style.css" id="main-style-link" />
     
+    <!-- Choices.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
+
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     
@@ -602,16 +605,16 @@ try {
                   <!-- Filter Inputs -->
                   <div class="row mt-3">
                     <div class="col-md-2 mb-2">
-                      <input type="text" class="filter-input" id="filterStokKodu" placeholder="Stok Kodu Filtrele">
+                      <input type="text" class="filter-input" id="filterStokKodu" placeholder="Stok Kodu Ara...">
                     </div>
                     <div class="col-md-3 mb-2">
-                      <input type="text" class="filter-input" id="filterEnvanterAdi" placeholder="Envanter Adı Filtrele">
+                      <input type="text" class="filter-input" id="filterEnvanterAdi" placeholder="Envanter Adı Ara...">
                     </div>
                     <div class="col-md-2 mb-2">
-                      <input type="text" class="filter-input" id="filterDepartman" placeholder="Departman Filtrele">
+                      <select id="filterDepartman" class="filter-input" placeholder="Departman Seç..."></select>
                     </div>
                     <div class="col-md-2 mb-2">
-                      <input type="text" class="filter-input" id="filterKullanici" placeholder="Kullanıcı Filtrele">
+                      <select id="filterKullanici" class="filter-input" placeholder="Kullanıcı Seç..."></select>
                     </div>
                     <div class="col-md-3 mb-2 d-flex gap-2">
                       <button id="clearFilters" class="btn btn-secondary w-50">
@@ -715,6 +718,9 @@ try {
     <!-- SheetJS for Excel export -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
+    <!-- Choices.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+
     <!-- Heartbeat Script -->
     <script src="https://katalog.gunesegel.net/dashboard/js/heartbeat.js"></script>
 
@@ -733,23 +739,22 @@ document.addEventListener('DOMContentLoaded', function() {
         departman: '',
         kullanici: ''
     };
-    let currentSortBy = 'stok_kodu'; // Varsayılan sıralama sütunu
-    let currentSortOrder = 'asc';   // Varsayılan sıralama yönü
+    let currentSortBy = 'stok_kodu';
+    let currentSortOrder = 'asc';
     
-    // Sayfa yüklendiğinde envanteri çek
+    let departmanChoices, kullaniciChoices;
+    let filtersInitialized = false;
+
+    // Ana veri yükleme fonksiyonu
     function loadInventory(page = 1, limit = 20, filters = {}, sortBy, sortOrder) {
         currentPage = page;
         currentLimit = limit;
-        // Gelen filtre boş değilse, mevcut filtreleri güncelle
         if (Object.keys(filters).length > 0) {
             currentFilters = filters;
         }
-        
-        // Eğer sortBy ve sortOrder parametreleri geldiyse, mevcut sıralama durumunu güncelle
         if (sortBy) currentSortBy = sortBy;
         if (sortOrder) currentSortOrder = sortOrder;
 
-        // Loading göster
         $('#envanterTable tbody').html(`
             <tr>
                 <td colspan="6" class="text-center py-5">
@@ -767,11 +772,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 limit: currentLimit,
                 filters: JSON.stringify(currentFilters),
                 sortBy: currentSortBy,
-                sortOrder: currentSortOrder
+                sortOrder: currentSortOrder,
+                getFilters: !filtersInitialized
             },
             dataType: 'json',
             success: function(response) {
                 if (response.success && response.data) {
+                    if (response.data.filterOptions && !filtersInitialized) {
+                        initializeFilterDropdowns(response.data.filterOptions);
+                        filtersInitialized = true;
+                    }
                     renderInventory(response.data);
                     renderPagination(response.data);
                     updateRecordInfo(response.data);
@@ -798,38 +808,47 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Choices.js filtre menülerini başlatan fonksiyon
+    function initializeFilterDropdowns(options) {
+        const choiceConfig = {
+            searchEnabled: true,
+            itemSelectText: 'Seç',
+            removeItemButton: true,
+            placeholder: true,
+            allowHTML: false
+        };
+
+        // Departman
+        const departmanEl = document.getElementById('filterDepartman');
+        departmanChoices = new Choices(departmanEl, { ...choiceConfig, placeholderValue: 'Departman Seç...' });
+        const departmanOptions = options.departman.map(val => ({ value: val, label: val }));
+        departmanChoices.setChoices([ { value: '', label: 'Tüm Departmanlar' }, ...departmanOptions ], 'value', 'label', false);
+
+        // Kullanıcı
+        const kullaniciEl = document.getElementById('filterKullanici');
+        kullaniciChoices = new Choices(kullaniciEl, { ...choiceConfig, placeholderValue: 'Kullanıcı Seç...' });
+        const kullaniciOptions = options.kullanici.map(val => ({ value: val, label: val }));
+        kullaniciChoices.setChoices([ { value: '', label: 'Tüm Kullanıcılar' }, ...kullaniciOptions ], 'value', 'label', false);
+    }
     
     // Envanteri tabloya render et
     function renderInventory(data) {
         let html = '';
-        
         if (data.products && data.products.length > 0) {
             data.products.forEach(item => {
                 html += `
                 <tr>
                     <td>
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input envanter-checkbox" value="${escapeHtml(item.stok_kodu)}">
-                        </div>
+                        <div class="form-check"><input type="checkbox" class="form-check-input envanter-checkbox" value="${escapeHtml(item.stok_kodu)}"></div>
                     </td>
-                    <td>
-                        <span class="badge bg-primary-subtle text-primary">${escapeHtml(item.stok_kodu)}</span>
-                    </td>
-                    <td>
-                        <div class="fw-bold">${escapeHtml(item.envanteradi)}</div>
-                    </td>
-                    <td>
-                        <small class="text-muted">${escapeHtml(item.departman)}</small>
-                    </td>
-                    <td>
-                        <span class="badge bg-info-subtle text-info">${escapeHtml(item.kullanici)}</span>
-                    </td>
+                    <td><span class="badge bg-primary-subtle text-primary">${escapeHtml(item.stok_kodu)}</span></td>
+                    <td><div class="fw-bold">${escapeHtml(item.envanteradi)}</div></td>
+                    <td><small class="text-muted">${escapeHtml(item.departman)}</small></td>
+                    <td><span class="badge bg-info-subtle text-info">${escapeHtml(item.kullanici)}</span></td>
                     <td class="text-center">
                         ${item.resim ? 
-                            `<img src="https://katalog.gunesegel.net/yonetim/envanterler/${escapeHtml(item.resim)}" 
-                                  class="product-image" 
-                                  alt="Envanter Resmi"
-                                  onclick="openImageModal('https://katalog.gunesegel.net/yonetim/envanterler/${escapeHtml(item.resim)}')">` : 
+                            `<img src="https://katalog.gunesegel.net/yonetim/envanterler/${escapeHtml(item.resim)}" class="product-image" alt="Envanter Resmi" onclick="openImageModal('https://katalog.gunesegel.net/yonetim/envanterler/${escapeHtml(item.resim)}')">` :
                             `<span class="badge bg-secondary">Resim Yok</span>`}
                     </td>
                 </tr>`;
@@ -844,191 +863,112 @@ document.addEventListener('DOMContentLoaded', function() {
                 </tr>
             `;
         }
-        
         $('#envanterTable tbody').html(html);
     }
     
-    // Kayıt bilgilerini güncelle
     function updateRecordInfo(data) {
         const total = data.total || 0;
         const page = data.current_page || 1;
         const limit = data.per_page || 20;
         const startRecord = total > 0 ? ((page - 1) * limit) + 1 : 0;
         const endRecord = Math.min(page * limit, total);
-        
-        $('#recordInfo').html(`
-            Toplam: <strong>${total}</strong> kayıt 
-            (${startRecord}-${endRecord} arası gösteriliyor)
-        `);
+        $('#recordInfo').html(`Toplam: <strong>${total}</strong> kayıt (${startRecord}-${endRecord} arası gösteriliyor)`);
     }
     
-    // Sayfalama linklerini render et
     function renderPagination(data) {
         let paginationHtml = '';
         const totalPages = data.total_pages || 1;
         const page = data.current_page || 1;
-        
         if (totalPages <= 1) {
             $('.pagination').html('');
             return;
         }
-        
-        // Previous button
         if (page > 1) {
-            paginationHtml += `
-            <li class="page-item">
-                <a class="page-link" href="#" onclick="loadInventory(${page - 1}, currentLimit)" aria-label="Previous">
-                    <i class="fas fa-chevron-left"></i>
-                </a>
-            </li>`;
+            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(${page - 1}, currentLimit)" aria-label="Previous"><i class="fas fa-chevron-left"></i></a></li>`;
         }
-        
-        // Page numbers with smart pagination
         let startPage = Math.max(1, page - 2);
         let endPage = Math.min(totalPages, page + 2);
-        
         if (startPage > 1) {
             paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(1, currentLimit)">1</a></li>`;
-            if (startPage > 2) {
-                paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-            }
+            if (startPage > 2) paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
         }
-        
         for (let i = startPage; i <= endPage; i++) {
-            paginationHtml += `
-            <li class="page-item ${i === page ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="loadInventory(${i}, currentLimit)">${i}</a>
-            </li>`;
+            paginationHtml += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadInventory(${i}, currentLimit)">${i}</a></li>`;
         }
-        
         if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-            }
+            if (endPage < totalPages - 1) paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
             paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(${totalPages}, currentLimit)">${totalPages}</a></li>`;
         }
-        
-        // Next button
         if (page < totalPages) {
-            paginationHtml += `
-            <li class="page-item">
-                <a class="page-link" href="#" onclick="loadInventory(${page + 1}, currentLimit)" aria-label="Next">
-                    <i class="fas fa-chevron-right"></i>
-                </a>
-            </li>`;
+            paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="loadInventory(${page + 1}, currentLimit)" aria-label="Next"><i class="fas fa-chevron-right"></i></a></li>`;
         }
-        
         $('.pagination').html(paginationHtml);
         updateSortIcons();
     }
 
-    // Sıralama ikonlarını güncelle
     function updateSortIcons() {
-        // Önce tüm ikonları temizle
         $('#envanterTable thead th .sort-icon').remove();
-
         const th = $(`#envanterTable thead th[data-sort="${currentSortBy}"]`);
         if (th.length) {
-            let iconClass = 'fas fa-sort-up'; // up for asc
-            if (currentSortOrder === 'desc') {
-                iconClass = 'fas fa-sort-down'; // down for desc
-            }
-            // Add a non-breaking space before the icon
-            th.append(`&nbsp;<span class="sort-icon ${iconClass}" style="cursor: pointer;"></span>`);
+            let iconClass = currentSortOrder === 'asc' ? 'fa-sort-up' : 'fa-sort-down';
+            th.append(`&nbsp;<span class="sort-icon fas ${iconClass}" style="cursor: pointer;"></span>`);
         }
     }
     
-    // HTML escape fonksiyonu
     function escapeHtml(unsafe) {
         if (!unsafe) return '';
-        return unsafe
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
     
-    // Image modal functions
     window.openImageModal = function(imageSrc) {
         const modal = document.getElementById('imageModal');
         const modalImg = document.getElementById('modalImage');
         modal.style.display = "block";
         modalImg.src = imageSrc;
-        
-        modal.onclick = function(event) {
-            if (event.target === modal) {
-                closeImageModal();
-            }
-        }
-        
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                closeImageModal();
-            }
-        });
+        modal.onclick = (event) => { if (event.target === modal) closeImageModal(); };
+        document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeImageModal(); });
     }
     
     window.closeImageModal = function() {
         document.getElementById('imageModal').style.display = "none";
     }
     
-    // Sayfa limiti değiştiğinde
     $('#pageLimit').change(function() {
-        const limit = $(this).val();
-        loadInventory(1, limit);
+        loadInventory(1, $(this).val());
     });
     
-    // Tablo başlığına tıklayarak sıralama
     $(document).on('click', '#envanterTable thead th[data-sort]', function() {
         const newSortBy = $(this).data('sort');
         if (!newSortBy) return;
-
-        let newSortOrder;
-        if (newSortBy === currentSortBy) {
-            newSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
-        } else {
-            newSortOrder = 'asc';
-        }
-
+        const newSortOrder = newSortBy === currentSortBy && currentSortOrder === 'asc' ? 'desc' : 'asc';
         loadInventory(1, currentLimit, {}, newSortBy, newSortOrder);
     });
 
-    // Tümünü seç checkbox'ı
     $('#selectAll').change(function() {
         $('.envanter-checkbox').prop('checked', $(this).prop('checked'));
         updateDeleteButton();
     });
     
-    // Checkbox değişikliklerini takip et
     $(document).on('change', '.envanter-checkbox', function() {
         updateDeleteButton();
-        
-        const totalCheckboxes = $('.envanter-checkbox').length;
-        const checkedCheckboxes = $('.envanter-checkbox:checked').length;
-        $('#selectAll').prop('indeterminate', checkedCheckboxes > 0 && checkedCheckboxes < totalCheckboxes);
-        $('#selectAll').prop('checked', checkedCheckboxes === totalCheckboxes);
+        const total = $('.envanter-checkbox').length;
+        const checked = $('.envanter-checkbox:checked').length;
+        $('#selectAll').prop('indeterminate', checked > 0 && checked < total);
+        $('#selectAll').prop('checked', checked === total);
     });
     
-    // Sil butonu durumunu güncelle
     function updateDeleteButton() {
         const selected = $('.envanter-checkbox:checked').length;
+        $('#topluSilBtn').prop('disabled', selected === 0);
         if (selected > 0) {
-            $('#topluSilBtn').removeClass('btn-secondary').addClass('btn-danger').prop('disabled', false);
             $('#topluSilBtn').html(`<i class="fas fa-trash me-2"></i>Seçili ${selected} Envanteri Sil`);
         } else {
-            $('#topluSilBtn').removeClass('btn-danger').addClass('btn-secondary').prop('disabled', true);
             $('#topluSilBtn').html('<i class="fas fa-trash me-2"></i>Seçili Envanterleri Sil');
         }
     }
     
-    // Toplu silme işlemi
     $('#topluSilBtn').click(function() {
-        var selected = [];
-        $('.envanter-checkbox:checked').each(function() {
-            selected.push($(this).val());
-        });
-        
+        const selected = $('.envanter-checkbox:checked').map((_, el) => $(el).val()).get();
         if (selected.length === 0) {
             Swal.fire('Uyarı!', 'Lütfen silmek istediğiniz envanterleri seçiniz.', 'warning');
             return;
@@ -1047,138 +987,85 @@ document.addEventListener('DOMContentLoaded', function() {
             focusCancel: true
         }).then((result) => {
             if (result.isConfirmed) {
-                Swal.fire({
-                    title: 'Siliniyor...',
-                    allowOutsideClick: false,
-                    didOpen: () => { Swal.showLoading(); }
-                });
-                
+                Swal.fire({ title: 'Siliniyor...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                 $.ajax({
                     url: 'sil.php',
                     type: 'POST',
                     contentType: 'application/json',
                     data: JSON.stringify({ urunler: selected }),
-                    success: function(response) {
+                    success: (response) => {
+                        Swal.fire(response.success ? 'Başarılı!' : 'Hata!', response.message, response.success ? 'success' : 'error');
                         if (response.success) {
-                            Swal.fire('Başarılı!', response.message || 'Seçili envanterler başarıyla silindi.', 'success');
                             loadInventory(currentPage, currentLimit);
-                            $('#selectAll').prop('checked', false);
-                        } else {
-                            Swal.fire('Hata!', response.message || 'Envanterler silinirken bir hata oluştu.', 'error');
+                            $('#selectAll').prop('checked', false).prop('indeterminate', false);
                         }
                     },
-                    error: function() {
-                        Swal.fire('Bağlantı Hatası!', 'İşlem sırasında bir hata oluştu.', 'error');
-                    }
+                    error: () => Swal.fire('Bağlantı Hatası!', 'İşlem sırasında bir hata oluştu.', 'error')
                 });
             }
         });
     });
     
-    // Yenile butonu
-    $('#refreshBtn').click(function() {
-        loadInventory(currentPage, currentLimit, currentFilters);
-    });
+    $('#refreshBtn').click(() => loadInventory(currentPage, currentLimit, currentFilters));
     
-    // Excel export butonu
     $('#exportBtn').click(function() {
-        Swal.fire({
-            title: 'Excel Dosyası Hazırlanıyor',
-            allowOutsideClick: false,
-            didOpen: () => { Swal.showLoading(); }
-        });
-        
+        Swal.fire({ title: 'Excel Dosyası Hazırlanıyor', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
         $.ajax({
             url: 'proxy.php',
             type: 'GET',
-            data: {
-                page: 1,
-                limit: 10000,
-                filters: JSON.stringify(currentFilters),
-                sortBy: currentSortBy,
-                sortOrder: currentSortOrder
-            },
+            data: { page: 1, limit: 10000, filters: JSON.stringify(currentFilters), sortBy: currentSortBy, sortOrder: currentSortOrder },
             dataType: 'json',
-            success: function(response) {
-                if (response.success && response.data && response.data.products) {
+            success: (response) => {
+                if (response.success && response.data.products) {
                     const data = response.data.products.map(item => ({
-                        'Stok Kodu': item.stok_kodu,
-                        'Envanter Adı': item.envanteradi,
-                        'Departman': item.departman,
-                        'Kullanıcı': item.kullanici,
-                        'Resim': item.resim ? 'https://katalog.gunesegel.net/yonetim/envanterler/' + item.resim : 'Yok'
+                        'Stok Kodu': item.stok_kodu, 'Envanter Adı': item.envanteradi, 'Departman': item.departman,
+                        'Kullanıcı': item.kullanici, 'Resim': item.resim ? `https://katalog.gunesegel.net/yonetim/envanterler/${item.resim}` : 'Yok'
                     }));
-                    
-                    const worksheet = XLSX.utils.json_to_sheet(data);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, 'Envanter Listesi');
-                    XLSX.writeFile(workbook, `envanter-listesi-${new Date().toISOString().slice(0,10)}.xlsx`);
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, 'Envanter Listesi');
+                    XLSX.writeFile(wb, `envanter-listesi-${new Date().toISOString().slice(0,10)}.xlsx`);
                     Swal.close();
                 } else {
                     Swal.fire('Hata!', 'Excel dosyası oluşturulurken bir hata oluştu.', 'error');
                 }
             },
-            error: function() {
-                Swal.fire('Bağlantı Hatası!', 'Veriler alınırken bir hata oluştu.', 'error');
-            }
+            error: () => Swal.fire('Bağlantı Hatası!', 'Veriler alınırken bir hata oluştu.', 'error')
         });
     });
     
-    // Filtreleme işlemleri
     $('#applyFilters').click(function() {
         const filters = {
             stok_kodu: $('#filterStokKodu').val().trim(),
             envanteradi: $('#filterEnvanterAdi').val().trim(),
-            departman: $('#filterDepartman').val().trim(),
-            kullanici: $('#filterKullanici').val().trim()
+            departman: departmanChoices ? departmanChoices.getValue(true) || '' : '',
+            kullanici: kullaniciChoices ? kullaniciChoices.getValue(true) || '' : ''
         };
         loadInventory(1, currentLimit, filters);
     });
     
-    // Filtreleri temizle
     $('#clearFilters').click(function() {
         $('#filterStokKodu').val('');
         $('#filterEnvanterAdi').val('');
-        $('#filterDepartman').val('');
-        $('#filterKullanici').val('');
+        if (departmanChoices) departmanChoices.setValue([]);
+        if (kullaniciChoices) kullaniciChoices.setValue([]);
         
-        loadInventory(1, currentLimit, {
-            stok_kodu: '',
-            envanteradi: '',
-            departman: '',
-            kullanici: ''
-        });
+        loadInventory(1, currentLimit, { stok_kodu: '', envanteradi: '', departman: '', kullanici: '' });
     });
     
-    // Enter tuşu ile filtreleme
-    $('.filter-input').keypress(function(e) {
-        if (e.which === 13) {
-            $('#applyFilters').click();
-        }
-    });
+    $('.filter-input').keypress((e) => { if (e.which === 13) $('#applyFilters').click(); });
     
-    // Modal close button
-    document.querySelector('.image-modal-close').onclick = function() {
-        closeImageModal();
-    }
+    document.querySelector('.image-modal-close').onclick = () => closeImageModal();
     
-    // İlk yükleme
     const urlParams = new URLSearchParams(window.location.search);
     const initialPage = parseInt(urlParams.get('page')) || 1;
     let initialLimit = parseInt(urlParams.get('limit')) || 20;
-    
     const validLimits = Array.from(document.querySelectorAll('#pageLimit option')).map(opt => opt.value);
-    if (!validLimits.includes(String(initialLimit))) {
-        initialLimit = 20;
-    }
-
+    if (!validLimits.includes(String(initialLimit))) initialLimit = 20;
     $('#pageLimit').val(initialLimit);
+    
     loadInventory(initialPage, initialLimit);
-    
-    // Initialize delete button
     updateDeleteButton();
-    
-    // Global function for pagination
     window.loadInventory = loadInventory;
 });
 
