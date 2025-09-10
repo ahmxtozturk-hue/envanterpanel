@@ -84,6 +84,9 @@ try {
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.2.9/css/responsive.bootstrap5.min.css">
     
+    <!-- Choices.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+
     <style>
       [data-pc-theme="dark"] .swal2-popup {
         background: #2a2a3c;
@@ -608,13 +611,11 @@ try {
                       <input type="text" class="filter-input" id="filterEnvanterAdi" placeholder="Envanter Adı Filtrele">
                     </div>
                     <div class="col-md-2 mb-2">
-                      <select id="filterDepartman" class="form-select filter-input">
-                        <option value="">Tüm Departmanlar</option>
+                      <select id="filterDepartman" class="form-select filter-input" multiple>
                       </select>
                     </div>
                     <div class="col-md-2 mb-2">
-                      <select id="filterKullanici" class="form-select filter-input">
-                        <option value="">Tüm Kullanıcılar</option>
+                      <select id="filterKullanici" class="form-select filter-input" multiple>
                       </select>
                     </div>
                     <div class="col-md-3 mb-2 d-flex gap-2">
@@ -625,6 +626,10 @@ try {
                         <i class="fas fa-filter me-1"></i> Uygula
                       </button>
                     </div>
+                  </div>
+
+                  <!-- Active Filters Display -->
+                  <div id="activeFilters" class="row mt-3 pt-3 border-top" style="display: none; min-height: 45px;">
                   </div>
                 </div>
                 
@@ -666,13 +671,14 @@ try {
                   </table>
                 </div>
                 
-                <div class="row mt-4">
+                <div class="row mt-4 align-items-center">
                   <div class="col-md-6">
                     <button id="topluSilBtn" class="btn btn-danger btn-lg">
                       <i class="fas fa-trash me-2"></i>Seçili Envanterleri Sil
                     </button>
                   </div>
                   <div class="col-md-6 text-end">
+                    <span id="recordInfoBottom" class="text-muted me-3"></span>
                     <button id="refreshBtn" class="btn btn-info btn-lg me-2">
                       <i class="fas fa-sync-alt me-2"></i>Yenile
                     </button>
@@ -718,6 +724,9 @@ try {
     
     <!-- SheetJS for Excel export -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <!-- Choices.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
     
     <!-- Heartbeat Script -->
     <script src="https://katalog.gunesegel.net/dashboard/js/heartbeat.js"></script>
@@ -728,6 +737,22 @@ try {
     <script>
 document.addEventListener('DOMContentLoaded', function() {
     feather.replace();
+
+    const choicesDepartman = new Choices('#filterDepartman', {
+        removeItemButton: true,
+        placeholder: true,
+        placeholderValue: 'Departmanlar...',
+        noResultsText: 'Sonuç bulunamadı',
+        itemSelectText: 'Seç',
+    });
+
+    const choicesKullanici = new Choices('#filterKullanici', {
+        removeItemButton: true,
+        placeholder: true,
+        placeholderValue: 'Kullanıcılar...',
+        noResultsText: 'Sonuç bulunamadı',
+        itemSelectText: 'Seç',
+    });
 
     // --- Global State Variables ---
     let fullInventory = [];         // Holds all products fetched from the server
@@ -768,21 +793,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     /**
-     * Populates the filter dropdowns with unique values from the inventory.
+     * Populates the filter dropdowns with unique values from the inventory using Choices.js API.
      */
     function populateFilterDropdowns() {
-        const departmanSelect = $('#filterDepartman');
-        const kullaniciSelect = $('#filterKullanici');
+        const departmanlar = [...new Set(fullInventory.map(item => item.departman).filter(Boolean))].sort();
+        const kullanicilar = [...new Set(fullInventory.map(item => item.kullanici).filter(Boolean))].sort();
 
-        // Clear existing options except the first one
-        departmanSelect.find('option:not(:first)').remove();
-        kullaniciSelect.find('option:not(:first)').remove();
-
-        const departmanlar = [...new Set(fullInventory.map(item => item.departman).filter(Boolean))];
-        const kullanicilar = [...new Set(fullInventory.map(item => item.kullanici).filter(Boolean))];
-
-        departmanlar.sort().forEach(d => departmanSelect.append(`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`));
-        kullanicilar.sort().forEach(k => kullaniciSelect.append(`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`));
+        choicesDepartman.setChoices(
+            departmanlar.map(d => ({ value: d, label: d })),
+            'value',
+            'label',
+            true
+        );
+        choicesKullanici.setChoices(
+            kullanicilar.map(k => ({ value: k, label: k })),
+            'value',
+            'label',
+            true
+        );
     }
 
     /**
@@ -794,18 +822,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const filters = {
             stok_kodu: $('#filterStokKodu').val().trim().toLowerCase(),
             envanteradi: $('#filterEnvanterAdi').val().trim().toLowerCase(),
-            departman: $('#filterDepartman').val(),
-            kullanici: $('#filterKullanici').val()
+            departman: choicesDepartman.getValue(true),
+            kullanici: choicesKullanici.getValue(true)
         };
+
+        renderActiveFilters(filters);
 
         filteredInventory = fullInventory.filter(item => {
             const itemStokKodu = item.stok_kodu ? item.stok_kodu.toLowerCase() : '';
             const itemEnvanterAdi = item.envanteradi ? item.envanteradi.toLowerCase() : '';
 
+            const departmanMatch = filters.departman.length === 0 || filters.departman.includes(item.departman);
+            const kullaniciMatch = filters.kullanici.length === 0 || filters.kullanici.includes(item.kullanici);
+
             return (filters.stok_kodu === '' || itemStokKodu.includes(filters.stok_kodu)) &&
                    (filters.envanteradi === '' || itemEnvanterAdi.includes(filters.envanteradi)) &&
-                   (filters.departman === '' || item.departman === filters.departman) &&
-                   (filters.kullanici === '' || item.kullanici === filters.kullanici);
+                   departmanMatch &&
+                   kullaniciMatch;
         });
 
         // 2. Apply Sorting
@@ -871,7 +904,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const total = filteredInventory.length;
         const startRecord = total > 0 ? ((currentPage - 1) * currentLimit) + 1 : 0;
         const endRecord = Math.min(currentPage * currentLimit, total);
-        $('#recordInfo').html(`Toplam: <strong>${total}</strong> kayıt (${startRecord}-${endRecord} arası gösteriliyor)`);
+        const infoHtml = `Toplam: <strong>${total}</strong> kayıt (${startRecord}-${endRecord} arası gösteriliyor)`;
+
+        $('#recordInfo').html(infoHtml);
+        $('#recordInfoBottom').html(infoHtml);
     }
 
     /**
@@ -949,14 +985,60 @@ document.addEventListener('DOMContentLoaded', function() {
         return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
+    // --- UI Helper Functions ---
+
+    function renderActiveFilters(filters) {
+        const container = $('#activeFilters').empty();
+        let hasFilters = false;
+
+        const addTag = (type, value, label) => {
+            hasFilters = true;
+            container.append(`
+                <div class="col-auto mb-2">
+                    <span class="badge rounded-pill bg-light text-dark d-flex align-items-center p-2">
+                        <strong class="me-1">${label}:</strong> ${escapeHtml(value)}
+                        <button type="button" class="btn-close ms-2" style="font-size: 0.6em;" aria-label="Kaldır" data-filter-type="${type}" data-filter-value="${escapeHtml(value)}"></button>
+                    </span>
+                </div>
+            `);
+        };
+
+        if (filters.stok_kodu) addTag('stok_kodu', filters.stok_kodu, 'Stok Kodu');
+        if (filters.envanteradi) addTag('envanteradi', filters.envanteradi, 'Envanter Adı');
+        filters.departman.forEach(val => addTag('departman', val, 'Departman'));
+        filters.kullanici.forEach(val => addTag('kullanici', val, 'Kullanıcı'));
+
+        container.toggle(hasFilters);
+    }
+
     // --- Event Handlers ---
+
+    // Remove individual filter tags
+    $('#activeFilters').on('click', '[data-filter-type]', function() {
+        const filterType = $(this).data('filter-type');
+        const filterValue = $(this).data('filter-value');
+
+        if (filterType === 'stok_kodu') {
+            $('#filterStokKodu').val('');
+        } else if (filterType === 'envanteradi') {
+            $('#filterEnvanterAdi').val('');
+        } else if (filterType === 'departman') {
+            choicesDepartman.removeItem(String(filterValue));
+        } else if (filterType === 'kullanici') {
+            choicesKullanici.removeItem(String(filterValue));
+        }
+        // The 'change' event from Choices.js will trigger renderPage, but we call it here to be explicit
+        renderPage();
+    });
+
     $('#applyFilters').click(() => { currentPage = 1; renderPage(); });
 
-    $('.filter-input').on('keyup', function(e) {
+    $('input.filter-input').on('keyup', function(e) {
         if (e.which === 13) {
             $('#applyFilters').click();
         }
     });
+
     // For select dropdowns, apply filter on change
     $('#filterDepartman, #filterKullanici').on('change', function() {
         $('#applyFilters').click();
@@ -964,7 +1046,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     $('#clearFilters').click(() => {
         $('#filterStokKodu, #filterEnvanterAdi').val('');
-        $('#filterDepartman, #filterKullanici').val('');
+        choicesDepartman.removeActiveItems();
+        choicesKullanici.removeActiveItems();
         currentPage = 1;
         renderPage();
     });
